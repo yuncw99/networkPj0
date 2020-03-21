@@ -10,9 +10,64 @@
 struct Protocol {
     char op;
     char shift;
-    short checksum;
+    unsigned short checksum;
     int length;
 };
+
+unsigned short checksum2(const char *buf, unsigned size)
+{
+	unsigned long long sum = 0;
+	const unsigned long long *b = (unsigned long long *) buf;
+
+	unsigned t1, t2;
+	unsigned short t3, t4;
+
+	/* Main loop - 8 bytes at a time */
+	while (size >= sizeof(unsigned long long))
+	{
+		unsigned long long s = *b++;
+		sum += s;
+		if (sum < s) sum++;
+		size -= 8;
+	}
+
+	/* Handle tail less than 8-bytes long */
+	buf = (const char *) b;
+	if (size & 4)
+	{
+		unsigned s = *(unsigned *)buf;
+		sum += s;
+		if (sum < s) sum++;
+		buf += 4;
+	}
+
+	if (size & 2)
+	{
+		unsigned short s = *(unsigned short *) buf;
+		sum += s;
+		if (sum < s) sum++;
+		buf += 2;
+	}
+
+	if (size)
+	{
+		unsigned char s = *(unsigned char *) buf;
+		sum += s;
+		if (sum < s) sum++;
+	}
+
+	/* Fold down to 16 bits */
+	t1 = sum;
+	t2 = sum >> 32;
+	t1 += t2;
+	if (t1 < t2) t1++;
+	t3 = t1;
+	t4 = t1 >> 16;
+	t3 += t4;
+	if (t3 < t4) t3++;
+
+	return ~t3;
+}
 
 int main(int argc, char *argv[]) {
     int server;
@@ -48,7 +103,7 @@ int main(int argc, char *argv[]) {
     //server_addr.sin_port = htons(12000);
     //server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
-    printf("op : %d, shift : %d\n", protocol.op, protocol.shift);
+    //printf("op : %d, shift : %d\n", protocol.op, protocol.shift);
 
     if(connect(server, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
         printf("can't connect\n");
@@ -58,21 +113,24 @@ int main(int argc, char *argv[]) {
     printf("connected. %d\n", server);
 
     while(1) {
-        //scanf("%s", buf);
         gets(buf);
-
-        protocol.length = strlen(buf) + 8;
+        protocol.checksum = 0;
+        protocol.length = htonl(strlen(buf) + 8);
 
         memcpy(packet, (char*)&protocol, sizeof(protocol));
         strcpy(packet+8, buf);
 
-        //write(server, buf, strlen(buf));
-        write(server, packet, protocol.length);
+        protocol.checksum = checksum2(packet, ntohl(protocol.length));
+        printf("checksum : %x\n", protocol.checksum);
 
-        res_len = read(server, buf, BUF_LEN);
+        memcpy(packet, (char*)&protocol, sizeof(protocol));
+
+        write(server, packet, ntohl(protocol.length));
+
+        res_len = read(server, buf, ntohl(protocol.length));
         printf("res_len : %d\n", res_len);
         buf[res_len] = 0;
-        //printf("%s\n", buf);
+
         printf("%s\n", buf+8);
     }
 

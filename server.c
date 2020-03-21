@@ -12,9 +12,64 @@
 struct Protocol {
     char op;
     char shift;
-    short checksum;
+    unsigned short checksum;
     int length;
 };
+
+unsigned short checksum2(const char *buf, unsigned size)
+{
+	unsigned long long sum = 0;
+	const unsigned long long *b = (unsigned long long *) buf;
+
+	unsigned t1, t2;
+	unsigned short t3, t4;
+
+	/* Main loop - 8 bytes at a time */
+	while (size >= sizeof(unsigned long long))
+	{
+		unsigned long long s = *b++;
+		sum += s;
+		if (sum < s) sum++;
+		size -= 8;
+	}
+
+	/* Handle tail less than 8-bytes long */
+	buf = (const char *) b;
+	if (size & 4)
+	{
+		unsigned s = *(unsigned *)buf;
+		sum += s;
+		if (sum < s) sum++;
+		buf += 4;
+	}
+
+	if (size & 2)
+	{
+		unsigned short s = *(unsigned short *) buf;
+		sum += s;
+		if (sum < s) sum++;
+		buf += 2;
+	}
+
+	if (size)
+	{
+		unsigned char s = *(unsigned char *) buf;
+		sum += s;
+		if (sum < s) sum++;
+	}
+
+	/* Fold down to 16 bits */
+	t1 = sum;
+	t2 = sum >> 32;
+	t1 += t2;
+	if (t1 < t2) t1++;
+	t3 = t1;
+	t4 = t1 >> 16;
+	t3 += t4;
+	if (t3 < t4) t3++;
+
+	return ~t3;
+}
 
 int main(int argc, char *argv[]) {
     int server_fd, client_fd;
@@ -22,6 +77,7 @@ int main(int argc, char *argv[]) {
     char *buf = malloc(BUF_LEN);
     int res_len, cli_addr_len;
     int n = 2;
+    unsigned short tmp_checksum = 0;
 
     struct Protocol protocol;
 
@@ -57,21 +113,28 @@ int main(int argc, char *argv[]) {
 
     cli_addr_len = sizeof(client_addr);
 
+    client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &cli_addr_len);
+    if(client_fd < 0){
+        printf("Can't access to client\n");
+        exit(0);
+    }
+
+    printf("Client %d connected\n", client_fd);
+
     while(1) {
-        client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &cli_addr_len);
-        if(client_fd < 0){
-            printf("Can't access to client\n");
-            exit(0);
-        }
-
-        printf("Client %d connected\n", client_fd);
-
         res_len = read(client_fd, buf, BUF_LEN);
 
-        protocol.op = buf[0];
-        protocol.shift = buf[1];
+        memcpy((char *)&protocol, buf, sizeof(protocol));
 
-        printf("op : %d, shift : %d\n", protocol.op, protocol.shift);
+        printf("op : %d, shift : %d, checksum : %x\n", protocol.op, protocol.shift, protocol.checksum);
+        tmp_checksum = protocol.checksum;
+        protocol.checksum = 0;
+        memcpy(buf, (char *)&protocol, sizeof(protocol));
+
+        if(checksum2(buf, ntohl(protocol.length)) != tmp_checksum) {
+            printf("different checksum : %x, %x\n", checksum2(buf, ntohl(protocol.length)), tmp_checksum);
+            exit(0);
+        }
 
         for(int i=8; i<res_len; i++) {
             if(isupper(buf[i]))
@@ -85,6 +148,9 @@ int main(int argc, char *argv[]) {
                 }
             }
         }
+
+        protocol.checksum = checksum2(buf, ntohl(protocol.length));
+        memcpy(buf, (char *)&protocol, sizeof(protocol));
 
         write(client_fd, buf, res_len);
     }
