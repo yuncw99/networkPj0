@@ -71,6 +71,20 @@ unsigned short checksum2(const char *buf, unsigned size)
 	return ~t3;
 }
 
+int accept_repeat(int fd, struct sockaddr *addr, socklen_t *addr_len) {
+    int client_fd = 0;
+
+    client_fd = accept(fd, addr, addr_len);
+    if(client_fd < 0){
+        printf("Can't access to client\n");
+        exit(0);
+    } else {
+        printf("Client %d connected\n", client_fd);
+    }
+
+    return client_fd;
+}
+
 int main(int argc, char *argv[]) {
     int server_fd, client_fd;
     struct sockaddr_in server_addr, client_addr;
@@ -113,46 +127,53 @@ int main(int argc, char *argv[]) {
 
     cli_addr_len = sizeof(client_addr);
 
-    client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &cli_addr_len);
-    if(client_fd < 0){
-        printf("Can't access to client\n");
-        exit(0);
-    }
-
-    printf("Client %d connected\n", client_fd);
+    client_fd = accept_repeat(server_fd, (struct sockaddr *)&client_addr, &cli_addr_len);
 
     while(1) {
         res_len = read(client_fd, buf, BUF_LEN);
+        buf[res_len] = 0;
 
+        // is disconnected?
+        if(res_len == 0) {
+            printf("disconnect : %d\n", client_fd);
+            client_fd = accept_repeat(server_fd, (struct sockaddr *)&client_addr, &cli_addr_len);
+
+            res_len = read(client_fd, buf, BUF_LEN);
+            buf[res_len] = 0;
+        }
+
+        // check whether valid checksum
         memcpy((char *)&protocol, buf, sizeof(protocol));
 
-        printf("op : %d, shift : %d, checksum : %x\n", protocol.op, protocol.shift, protocol.checksum);
+        //printf("op : %d, shift : %d, checksum : %x\n", protocol.op, protocol.shift, protocol.checksum);
         tmp_checksum = protocol.checksum;
         protocol.checksum = 0;
         memcpy(buf, (char *)&protocol, sizeof(protocol));
 
         if(checksum2(buf, ntohl(protocol.length)) != tmp_checksum) {
             printf("different checksum : %x, %x\n", checksum2(buf, ntohl(protocol.length)), tmp_checksum);
-            exit(0);
-        }
+            close(client_fd);
 
-        for(int i=8; i<res_len; i++) {
-            if(isupper(buf[i]))
-                buf[i] = tolower(buf[i]);
+            client_fd = accept_repeat(server_fd, (struct sockaddr *)&client_addr, &cli_addr_len);
+        } else {
+            for(int i=8; i<res_len; i++) {
+                if(isupper(buf[i]))
+                    buf[i] = tolower(buf[i]);
 
-            if(isalpha(buf[i])) {
-                if(protocol.op == 0) {
-                    buf[i] = (char)((((int)buf[i] + protocol.shift - ASCII_A + 26) % 26) + ASCII_A);
-                } else if(protocol.op == 1) {
-                    buf[i] = (char)((((int)buf[i] - protocol.shift - ASCII_A + 26) % 26) + ASCII_A);
+                if(isalpha(buf[i])) {
+                    if(protocol.op == 0) {
+                        buf[i] = (char)((((int)buf[i] + protocol.shift - ASCII_A + 26) % 26) + ASCII_A);
+                    } else if(protocol.op == 1) {
+                        buf[i] = (char)((((int)buf[i] - protocol.shift - ASCII_A + 26) % 26) + ASCII_A);
+                    }
                 }
             }
+
+            protocol.checksum = checksum2(buf, ntohl(protocol.length));
+            memcpy(buf, (char *)&protocol, sizeof(protocol));
+
+            write(client_fd, buf, res_len);
         }
-
-        protocol.checksum = checksum2(buf, ntohl(protocol.length));
-        memcpy(buf, (char *)&protocol, sizeof(protocol));
-
-        write(client_fd, buf, res_len);
     }
 
     close(client_fd);

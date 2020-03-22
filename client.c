@@ -76,6 +76,7 @@ int main(int argc, char *argv[]) {
     struct Protocol protocol;
     char *buf = malloc(BUF_LEN-8);
     char *packet = malloc(BUF_LEN);
+    unsigned short tmp_checksum = 0;
 
     if((server = socket(PF_INET, SOCK_STREAM, 0)) < 0) {
         printf("can't create socket\n");
@@ -130,6 +131,17 @@ int main(int argc, char *argv[]) {
         res_len = read(server, buf, ntohl(protocol.length));
         printf("res_len : %d\n", res_len);
         buf[res_len] = 0;
+
+        memcpy((char *)&protocol, buf, sizeof(protocol));
+
+        tmp_checksum = protocol.checksum;
+        protocol.checksum = 0;
+        memcpy(buf, (char *)&protocol, sizeof(protocol));
+
+        if(checksum2(buf, ntohl(protocol.length)) != tmp_checksum) {
+            printf("different checksum : %x, %x\n", checksum2(buf, ntohl(protocol.length)), tmp_checksum);
+            break;
+        }
 
         printf("%s\n", buf+8);
     }
