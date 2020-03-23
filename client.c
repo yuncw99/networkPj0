@@ -5,7 +5,7 @@
 #include "sys/types.h"
 #include "netinet/in.h"
 
-#define BUF_LEN 10*1024*1024
+#define BUF_LEN 10000000
 
 struct Protocol {
     char op;
@@ -72,12 +72,15 @@ unsigned short checksum2(const char *buf, unsigned size)
 int main(int argc, char *argv[]) {
     int server;
     struct sockaddr_in server_addr;
-    int res_len;
+    int sent_len = 0, res_len = 0, temp_len = 0;
     struct Protocol protocol;
-    char *buf = malloc(BUF_LEN-8);
+    char *buf = malloc(BUF_LEN);
     char *packet = malloc(BUF_LEN);
     unsigned short tmp_checksum = 0;
     char tmp_char;
+    int i;
+
+    int message_finish = 0;
 
     if((server = socket(PF_INET, SOCK_STREAM, 0)) < 0) {
         printf("can't create socket\n");
@@ -86,7 +89,7 @@ int main(int argc, char *argv[]) {
 
     memset((char *)&server_addr, 0x00, sizeof(server_addr));
 
-    for(int i=1; i<argc; i+=2) {
+    for(i=1; i<argc; i+=2) {
         if(!strcmp(argv[i], "-h")) {
             server_addr.sin_addr.s_addr = inet_addr(argv[i+1]);
         } else if(!strcmp(argv[i], "-p")) {
@@ -94,7 +97,11 @@ int main(int argc, char *argv[]) {
         } else if(!strcmp(argv[i], "-o")) {
             protocol.op = atoi(argv[i+1]);
         } else if(!strcmp(argv[i], "-s")) {
-            protocol.shift = atoi(argv[i+1]);
+            if(atoi(argv[i+1]) >= 0) {
+                protocol.shift = atoi(argv[i+1]) % 26;
+            } else {
+                protocol.shift = 26 - ((0 - atoi(argv[i+1])) % 26);
+            }
         } else {
             printf("input error\n");
             exit(0);
@@ -111,45 +118,72 @@ int main(int argc, char *argv[]) {
     printf("connected. %d\n", server);
 
     // input
-    for(int i=0; i<BUF_LEN-8; i++) {
-        tmp_char = fgetc(stdin);
-        buf[i] = tmp_char;
+    while(!message_finish) {
+        for(i=0; i<BUF_LEN-10; i++) {
+            tmp_char = fgetc(stdin);
+            buf[i] = tmp_char;
 
-        if(tmp_char == EOF) {
-            break;
+            if(tmp_char == EOF) {
+                message_finish = 1;
+                break;
+            }
         }
-    }
+        buf[i+1] = 0;
+        //message_finish = 1;
 
-    // write packet
-    protocol.checksum = 0;
-    printf("strlen : %d\n", strlen(buf));
-    protocol.length = htonl(strlen(buf) + 8);
+        // write packet
+        protocol.checksum = 0;
+        printf("write. strlen : %d\n", strlen(buf));
+        protocol.length = htonl(strlen(buf) + 8);
 
-    memcpy(packet, (char*)&protocol, sizeof(protocol));
-    strcpy(packet+8, buf);
+        memcpy(packet, (char*)&protocol, sizeof(protocol));
+        strcpy(packet+8, buf);
+        packet[ntohl(protocol.length)] = 0;
 
-    protocol.checksum = checksum2(packet, ntohl(protocol.length));
-    printf("length : %d, checksum : %x\n", ntohl(protocol.length), protocol.checksum);
+        protocol.checksum = checksum2(packet, ntohl(protocol.length));
+        printf("length : %d, checksum : %x\n", ntohl(protocol.length), protocol.checksum);
 
-    memcpy(packet, (char*)&protocol, sizeof(protocol));
+        memcpy(packet, (char*)&protocol, sizeof(protocol));
 
-    write(server, packet, ntohl(protocol.length));
+        write(server, packet, ntohl(protocol.length));
 
-    //read packet
-    res_len = read(server, buf, ntohl(protocol.length));
-    printf("res_len : %d\n", res_len);
-    buf[res_len] = 0;
+        //read packet
+        while(res_len < 8) {
+            temp_len = read(server, packet + res_len, BUF_LEN);
+            res_len += temp_len;
+            //printf("read. res_len : %d, temp_len : %d\n", res_len, temp_len);
 
-    memcpy((char *)&protocol, buf, sizeof(protocol));
+            if(temp_len == 0 || temp_len == -1) {
+                printf("disconnected. \n");
+                exit(0);
+            }
+        }
 
-    tmp_checksum = protocol.checksum;
-    protocol.checksum = 0;
-    memcpy(buf, (char *)&protocol, sizeof(protocol));
+        memcpy((char *)&protocol, packet, sizeof(protocol));
 
-    if(checksum2(buf, ntohl(protocol.length)) != tmp_checksum) {
-        printf("different checksum : %x, %x\n", checksum2(buf, ntohl(protocol.length)), tmp_checksum);
-    } else { 
-        printf("%s\n", buf+8);
+        while(res_len < ntohl(protocol.length)) {
+            temp_len = read(server, packet + res_len, ntohl(protocol.length) - res_len);
+            res_len += temp_len;
+            //printf("read. res_len : %d, temp_len : %d\n", res_len, temp_len);
+
+            if(temp_len == 0 || temp_len == -1) {
+                printf("disconnected. \n");
+                exit(0);
+            }
+        }
+        packet[res_len] = 0;
+
+        tmp_checksum = protocol.checksum;
+        protocol.checksum = 0;
+        memcpy(packet, (char *)&protocol, sizeof(protocol));
+
+        if(checksum2(packet, ntohl(protocol.length)) != tmp_checksum) {
+            printf("different checksum : %x, %x\n", checksum2(packet, ntohl(protocol.length)), tmp_checksum);
+        } else {
+            printf("read. res_len : %d\n", res_len);
+            printf("%s", packet+8);
+        }
+        res_len = 0;
     }
 
     // terminate

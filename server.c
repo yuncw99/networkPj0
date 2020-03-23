@@ -89,9 +89,10 @@ int main(int argc, char *argv[]) {
     int server_fd, client_fd;
     struct sockaddr_in server_addr, client_addr;
     char *buf = malloc(BUF_LEN);
-    int res_len, cli_addr_len;
+    int res_len = 0, cli_addr_len, temp_len;
     int n = 2;
     unsigned short tmp_checksum = 0;
+    int message_finish = 0;
 
     struct Protocol protocol;
 
@@ -124,53 +125,86 @@ int main(int argc, char *argv[]) {
     }
 
     cli_addr_len = sizeof(client_addr);
-    client_fd = accept_repeat(server_fd, (struct sockaddr *)&client_addr, &cli_addr_len);
 
     while(1) {
-        res_len = read(client_fd, buf, BUF_LEN);
-        buf[res_len] = 0;
+        client_fd = accept_repeat(server_fd, (struct sockaddr *)&client_addr, &cli_addr_len);
 
-        // is disconnected?
-        if(res_len == 0) {
-            printf("disconnect : %d\n", client_fd);
-            client_fd = accept_repeat(server_fd, (struct sockaddr *)&client_addr, &cli_addr_len);
+        while(!message_finish) {
+            res_len = 0;
 
-            res_len = read(client_fd, buf, BUF_LEN);
-            buf[res_len] = 0;
-        }
+            while(res_len < 8) {
+                temp_len = read(client_fd, buf + res_len, BUF_LEN);
+                res_len += temp_len;
+                printf("res_len : %d, temp_len : %d\n", res_len, temp_len);
 
-        // check whether valid checksum
-        memcpy((char *)&protocol, buf, sizeof(protocol));
+                if(temp_len == 0 || temp_len == -1) {
+                    printf("disconnect : %d\n", client_fd);
+                    client_fd = 0;
 
-        printf("length : %d, checksum : %x\n", ntohl(protocol.length), protocol.checksum);
-        tmp_checksum = protocol.checksum;
-        protocol.checksum = 0;
-        memcpy(buf, (char *)&protocol, sizeof(protocol));
-
-        if(checksum2(buf, ntohl(protocol.length)) != tmp_checksum) {
-            printf("different checksum : %x, %x\n", checksum2(buf, ntohl(protocol.length)), tmp_checksum);
-            close(client_fd);
-
-            client_fd = accept_repeat(server_fd, (struct sockaddr *)&client_addr, &cli_addr_len);
-        } else {
-            for(int i=8; i<res_len; i++) {
-                if(isupper(buf[i]))
-                    buf[i] = tolower(buf[i]);
-
-                if(isalpha(buf[i])) {
-                    if(protocol.op == 0) {
-                        buf[i] = (char)((((int)buf[i] + protocol.shift - ASCII_A + 26) % 26) + ASCII_A);
-                    } else if(protocol.op == 1) {
-                        buf[i] = (char)((((int)buf[i] - protocol.shift - ASCII_A + 26) % 26) + ASCII_A);
-                    }
+                    break;
                 }
             }
+            if(client_fd == 0)
+                break;
 
-            protocol.checksum = checksum2(buf, ntohl(protocol.length));
+            memcpy((char *)&protocol, buf, sizeof(protocol));
+
+            while(res_len < ntohl(protocol.length)) {
+                temp_len = read(client_fd, buf + res_len, ntohl(protocol.length) - res_len);
+                res_len += temp_len;
+                printf("res_len : %d, temp_len : %d\n", res_len, temp_len);
+
+                if(temp_len == 0 || temp_len == -1) {
+                    printf("disconnect : %d\n", client_fd);
+                    client_fd = 0;
+
+                    break;
+                }
+            }
+            if(client_fd == 0)
+                break;
+
+            buf[res_len] = 0;
+            if(buf[res_len-1] == EOF) {
+                printf("last message!\n");
+                message_finish = 1;
+            }
+
+            // check whether valid checksum
+            memcpy((char *)&protocol, buf, sizeof(protocol));
+
+            printf("length : %d, checksum : %x\n", ntohl(protocol.length), protocol.checksum);
+            tmp_checksum = protocol.checksum;
+            protocol.checksum = 0;
             memcpy(buf, (char *)&protocol, sizeof(protocol));
 
-            write(client_fd, buf, res_len);
+            if(checksum2(buf, ntohl(protocol.length)) != tmp_checksum) {
+                printf("different checksum : %x, %x\n", checksum2(buf, ntohl(protocol.length)), tmp_checksum);
+                break;
+            } else {
+                for(int i=8; i<res_len; i++) {
+                    if(isupper(buf[i]))
+                        buf[i] = tolower(buf[i]);
+
+                    if(isalpha(buf[i])) {
+                        if(protocol.op == 0) {
+                            buf[i] = (char)((((int)buf[i] + protocol.shift - ASCII_A + 26) % 26) + ASCII_A);
+                        } else if(protocol.op == 1) {
+                            buf[i] = (char)((((int)buf[i] - protocol.shift - ASCII_A + 26) % 26) + ASCII_A);
+                        }
+                    }
+                }
+
+                protocol.checksum = checksum2(buf, ntohl(protocol.length));
+                memcpy(buf, (char *)&protocol, sizeof(protocol));
+
+                write(client_fd, buf, res_len);
+                printf("write completed. %d\n", client_fd);
+            }
         }
+
+        close(client_fd);
+        message_finish = 0;
     }
 
     close(client_fd);
