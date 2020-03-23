@@ -77,6 +77,7 @@ int main(int argc, char *argv[]) {
     char *buf = malloc(BUF_LEN-8);
     char *packet = malloc(BUF_LEN);
     unsigned short tmp_checksum = 0;
+    char tmp_char;
 
     if((server = socket(PF_INET, SOCK_STREAM, 0)) < 0) {
         printf("can't create socket\n");
@@ -101,51 +102,57 @@ int main(int argc, char *argv[]) {
     }
 
     server_addr.sin_family = AF_INET;
-    //server_addr.sin_port = htons(12000);
-    //server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-
     //printf("op : %d, shift : %d\n", protocol.op, protocol.shift);
 
     if(connect(server, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
         printf("can't connect\n");
         exit(0);
     }
-
     printf("connected. %d\n", server);
 
-    while(1) {
-        gets(buf);
-        protocol.checksum = 0;
-        protocol.length = htonl(strlen(buf) + 8);
+    // input
+    for(int i=0; i<BUF_LEN-8; i++) {
+        tmp_char = fgetc(stdin);
+        buf[i] = tmp_char;
 
-        memcpy(packet, (char*)&protocol, sizeof(protocol));
-        strcpy(packet+8, buf);
-
-        protocol.checksum = checksum2(packet, ntohl(protocol.length));
-        printf("checksum : %x\n", protocol.checksum);
-
-        memcpy(packet, (char*)&protocol, sizeof(protocol));
-
-        write(server, packet, ntohl(protocol.length));
-
-        res_len = read(server, buf, ntohl(protocol.length));
-        printf("res_len : %d\n", res_len);
-        buf[res_len] = 0;
-
-        memcpy((char *)&protocol, buf, sizeof(protocol));
-
-        tmp_checksum = protocol.checksum;
-        protocol.checksum = 0;
-        memcpy(buf, (char *)&protocol, sizeof(protocol));
-
-        if(checksum2(buf, ntohl(protocol.length)) != tmp_checksum) {
-            printf("different checksum : %x, %x\n", checksum2(buf, ntohl(protocol.length)), tmp_checksum);
+        if(tmp_char == EOF) {
             break;
         }
+    }
 
+    // write packet
+    protocol.checksum = 0;
+    printf("strlen : %d\n", strlen(buf));
+    protocol.length = htonl(strlen(buf) + 8);
+
+    memcpy(packet, (char*)&protocol, sizeof(protocol));
+    strcpy(packet+8, buf);
+
+    protocol.checksum = checksum2(packet, ntohl(protocol.length));
+    printf("length : %d, checksum : %x\n", ntohl(protocol.length), protocol.checksum);
+
+    memcpy(packet, (char*)&protocol, sizeof(protocol));
+
+    write(server, packet, ntohl(protocol.length));
+
+    //read packet
+    res_len = read(server, buf, ntohl(protocol.length));
+    printf("res_len : %d\n", res_len);
+    buf[res_len] = 0;
+
+    memcpy((char *)&protocol, buf, sizeof(protocol));
+
+    tmp_checksum = protocol.checksum;
+    protocol.checksum = 0;
+    memcpy(buf, (char *)&protocol, sizeof(protocol));
+
+    if(checksum2(buf, ntohl(protocol.length)) != tmp_checksum) {
+        printf("different checksum : %x, %x\n", checksum2(buf, ntohl(protocol.length)), tmp_checksum);
+    } else { 
         printf("%s\n", buf+8);
     }
 
+    // terminate
     close(server);
     free(buf);
     free(packet);

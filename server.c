@@ -110,9 +110,7 @@ int main(int argc, char *argv[]) {
             exit(0);
         }
     }
-
     server_addr.sin_family = AF_INET;
-    //server_addr.sin_port = htons(12000);
     server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
     if(bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
@@ -126,7 +124,6 @@ int main(int argc, char *argv[]) {
     }
 
     cli_addr_len = sizeof(client_addr);
-
     client_fd = accept_repeat(server_fd, (struct sockaddr *)&client_addr, &cli_addr_len);
 
     while(1) {
@@ -145,7 +142,7 @@ int main(int argc, char *argv[]) {
         // check whether valid checksum
         memcpy((char *)&protocol, buf, sizeof(protocol));
 
-        //printf("op : %d, shift : %d, checksum : %x\n", protocol.op, protocol.shift, protocol.checksum);
+        printf("length : %d, checksum : %x\n", ntohl(protocol.length), protocol.checksum);
         tmp_checksum = protocol.checksum;
         protocol.checksum = 0;
         memcpy(buf, (char *)&protocol, sizeof(protocol));
