@@ -83,7 +83,7 @@ int main(int argc, char *argv[]) {
     int message_finish = 0;
 
     if((server = socket(PF_INET, SOCK_STREAM, 0)) < 0) {
-        printf("can't create socket\n");
+        //printf("can't create socket\n");
         exit(0);
     }
 
@@ -103,7 +103,7 @@ int main(int argc, char *argv[]) {
                 protocol.shift = 26 - ((0 - atoi(argv[i+1])) % 26);
             }
         } else {
-            printf("input error\n");
+            //printf("input error\n");
             exit(0);
         }
     }
@@ -112,10 +112,10 @@ int main(int argc, char *argv[]) {
     //printf("op : %d, shift : %d\n", protocol.op, protocol.shift);
 
     if(connect(server, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
-        printf("can't connect\n");
+        //printf("can't connect\n");
         exit(0);
     }
-    printf("connected. %d\n", server);
+    //printf("connected. %d\n", server);
 
     // input
     while(!message_finish) {
@@ -125,15 +125,15 @@ int main(int argc, char *argv[]) {
 
             if(tmp_char == EOF) {
                 message_finish = 1;
+                buf[i] = 0;
                 break;
             }
         }
         buf[i+1] = 0;
-        //message_finish = 1;
 
         // write packet
         protocol.checksum = 0;
-        printf("write. strlen : %d\n", strlen(buf));
+        //printf("write. strlen : %d\n", strlen(buf));
         protocol.length = htonl(strlen(buf) + 8);
 
         memcpy(packet, (char*)&protocol, sizeof(protocol));
@@ -141,7 +141,7 @@ int main(int argc, char *argv[]) {
         packet[ntohl(protocol.length)] = 0;
 
         protocol.checksum = checksum2(packet, ntohl(protocol.length));
-        printf("length : %d, checksum : %x\n", ntohl(protocol.length), protocol.checksum);
+        //printf("length : %d, checksum : %x\n", ntohl(protocol.length), protocol.checksum);
 
         memcpy(packet, (char*)&protocol, sizeof(protocol));
 
@@ -154,7 +154,7 @@ int main(int argc, char *argv[]) {
             //printf("read. res_len : %d, temp_len : %d\n", res_len, temp_len);
 
             if(temp_len == 0 || temp_len == -1) {
-                printf("disconnected. \n");
+                //printf("disconnected. \n");
                 exit(0);
             }
         }
@@ -167,7 +167,7 @@ int main(int argc, char *argv[]) {
             //printf("read. res_len : %d, temp_len : %d\n", res_len, temp_len);
 
             if(temp_len == 0 || temp_len == -1) {
-                printf("disconnected. \n");
+                //printf("disconnected. \n");
                 exit(0);
             }
         }
@@ -178,9 +178,9 @@ int main(int argc, char *argv[]) {
         memcpy(packet, (char *)&protocol, sizeof(protocol));
 
         if(checksum2(packet, ntohl(protocol.length)) != tmp_checksum) {
-            printf("different checksum : %x, %x\n", checksum2(packet, ntohl(protocol.length)), tmp_checksum);
+            //printf("different checksum : %x, %x\n", checksum2(packet, ntohl(protocol.length)), tmp_checksum);
         } else {
-            printf("read. res_len : %d\n", res_len);
+            //printf("read. res_len : %d\n", res_len);
             printf("%s", packet+8);
         }
         res_len = 0;
