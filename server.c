@@ -190,7 +190,7 @@ int main(int argc, char *argv[]) {
             protocol.checksum = 0;
             memcpy(buf, (char *)&protocol, sizeof(protocol));
 
-            if(checksum2(buf, ntohl(protocol.length)) != tmp_checksum) {
+            if(!(protocol.op == 0 || protocol.op == 1) || checksum2(buf, ntohl(protocol.length)) != tmp_checksum) {
                 //printf("different checksum : %x, %x\n", checksum2(buf, ntohl(protocol.length)), tmp_checksum);
 
                 message_finish = 1;

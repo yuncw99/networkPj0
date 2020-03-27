@@ -125,7 +125,7 @@ int main(int argc, char *argv[]) {
 
             if(tmp_char == EOF) {
                 message_finish = 1;
-                buf[i] = 0;
+                //buf[i] = 0;
                 break;
             }
         }
@@ -134,10 +134,10 @@ int main(int argc, char *argv[]) {
         // write packet
         protocol.checksum = 0;
         //printf("write. strlen : %d\n", strlen(buf));
-        protocol.length = htonl(strlen(buf) + 8);
+        protocol.length = htonl(i + 8);
 
         memcpy(packet, (char*)&protocol, sizeof(protocol));
-        strcpy(packet+8, buf);
+        memcpy(packet+8, buf, ntohl(protocol.length) - 8);
         packet[ntohl(protocol.length)] = 0;
 
         protocol.checksum = checksum2(packet, ntohl(protocol.length));
@@ -181,7 +181,13 @@ int main(int argc, char *argv[]) {
             //printf("different checksum : %x, %x\n", checksum2(packet, ntohl(protocol.length)), tmp_checksum);
         } else {
             //printf("read. res_len : %d\n", res_len);
-            printf("%s", packet+8);
+            //printf("%s", packet+8);
+            for(i=8; i<ntohl(protocol.length); i++) {
+                if(packet[i] == EOF)
+                    break;
+
+                fputc(packet[i], stdout);
+            }
         }
         res_len = 0;
     }
